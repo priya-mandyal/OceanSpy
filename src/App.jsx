@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
 import LiveDetection from './pages/LiveDetection';
 import ImageUpload from './pages/UploadImage';
-import logo from './media/logo.png';
 import './App.css';
 
 function App() {

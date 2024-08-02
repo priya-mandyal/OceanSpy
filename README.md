@@ -1,8 +1,28 @@
-# React + Vite
+# Ocean Pollution Detector
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+![Ocean Pollution Detector Logo](src/media/logo.png)
 
-Currently, two official plugins are available:
+## Overview
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The Ocean Pollution Detector is a web application designed to detect and analyze pollution in the ocean using real-time image uploads and live camera detection. The application leverages AWS services to handle image uploads and analysis, providing users with insights into ocean pollution.
+
+## Features
+
+- **Upload Image**: Users can upload images of the ocean to detect pollution.
+- **Live Detection**: Real-time detection using the webcam to periodically capture images and analyze them for pollution.
+- **Responsive Design**: Mobile-friendly and designed for various screen sizes.
+
+## Technologies Used
+
+- **Frontend**: React, Vite
+- **Backend**: AWS Lambda, API Gateway
+- **Image Processing**: AWS services
+- **Web Technologies**: HTML, CSS
+
+## Installation
+
+1. **Clone the Repository**:
+
+   ```bash
+   git clone https://github.com/your-username/Ocean-Pollution-Detector.git
+   cd Ocean-Pollution-Detector
