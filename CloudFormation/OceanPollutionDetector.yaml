@@ -1,0 +1,364 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Resources:
+  StorageOceanBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: 'storage-ocean-data-real-time'  # Specify the custom bucket name
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        IgnorePublicAcls: false
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+
+  # Define the bucket policy
+  StorageOceanBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref StorageOceanBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: 'Policy1721796046877'
+        Statement:
+          - Sid: 'Stmt1721796045038'
+            Effect: 'Allow'
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::storage-ocean-data-real-time/*'
+
+  SNSTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      TopicName: 'ocean-pollution-detected2'
+
+  SubscribeToTopicLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'subscribe-to-topic2'
+      Handler: 'index.lambda_handler'
+      Role: 'arn:aws:iam::650504431527:role/LabRole'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from botocore.exceptions import BotoCoreError, ClientError
+
+          sns_client = boto3.client('sns')
+
+          def lambda_handler(event, context):
+              print("Lambda function started.")
+              
+              try:
+                  query_params = event.get('queryStringParameters', {})
+                  email = query_params.get('email')
+                  print(f"Received email: {email}")
+                  
+                  if not email:
+                      print("No email address provided.")
+                      raise ValueError("Email address is required")
+
+                  topic_arn = os.environ['SNS_TOPIC_ARN']
+                  
+                  response = sns_client.subscribe(
+                      TopicArn=topic_arn,
+                      Protocol='email',
+                      Endpoint=email
+                  )
+                  
+                  print(f"Subscription response: {response}")
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Subscription successful!')
+                  }
+
+              except ValueError as ve:
+                  print(f"Input error: {str(ve)}")
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps(f"Input error: {str(ve)}")
+                  }
+
+              except (BotoCoreError, ClientError) as e:
+                  print(f"Internal server error: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f"Internal server error: {str(e)}")
+                  }
+
+              except Exception as e:
+                  print(f"An unexpected error occurred: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f"An unexpected error occurred: {str(e)}")
+                  }
+      Runtime: 'python3.9'
+      Timeout: 60
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSTopic
+
+  ApiGatewayRestApiSubscribe:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'SubscribeToTopicAPI'
+
+  ApiGatewayResourceSubscribe:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt ApiGatewayRestApiSubscribe.RootResourceId
+      PathPart: 'subscribe'
+      RestApiId: !Ref ApiGatewayRestApiSubscribe
+
+  ApiGatewayMethodSubscribe:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: 'NONE'
+      HttpMethod: 'POST'
+      ResourceId: !Ref ApiGatewayResourceSubscribe
+      RestApiId: !Ref ApiGatewayRestApiSubscribe
+      Integration:
+        IntegrationHttpMethod: 'POST'
+        Type: 'AWS_PROXY'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SubscribeToTopicLambda.Arn}/invocations'
+
+  ApiGatewayDeploymentSubscribe:
+    Type: 'AWS::ApiGateway::Deployment'
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApiSubscribe
+      StageName: 'prod'
+    DependsOn: ApiGatewayMethodSubscribe
+
+  LambdaPermissionSubscribe:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref SubscribeToTopicLambda
+      Principal: 'apigateway.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApiSubscribe}/*'
+
+  ApiGatewayCorsOptionsSubscribe:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: 'NONE'
+      ResourceId: !Ref ApiGatewayResourceSubscribe
+      RestApiId: !Ref ApiGatewayRestApiSubscribe
+      HttpMethod: 'OPTIONS'
+      Integration:
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+        RequestTemplates:
+          application/json: '{statusCode:200}'
+        Type: 'MOCK'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  ImageProcessingLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'image-processing2'
+      Handler: 'index.lambda_handler'
+      Role: 'arn:aws:iam::650504431527:role/LabRole'
+      Runtime: 'python3.9'
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import time
+          import os
+          from urllib.parse import unquote_plus
+          from datetime import datetime
+
+          rekognition = boto3.client('rekognition')
+          sns_client = boto3.client('sns')
+          s3 = boto3.client('s3')
+
+          PROJECT_VERSION_ARN = "arn:aws:rekognition:us-east-1:650504431527:project/ocean-pollution-detector-project/version/ocean-pollution-detector-project.2024-07-23T13.57.58/1721753878511"
+          SNS_TOPIC_ARN = os.environ['SNS_TOPIC_ARN']
+
+          def lambda_handler(event, context):
+              try:
+                  print("Event:", event)
+
+                  for record in event['Records']:
+                      bucket_name = record['s3']['bucket']['name']
+                      file_key = record['s3']['object']['key']
+
+                      decoded_file_key = unquote_plus(file_key)
+
+                      print(f"Bucket: {bucket_name}, File Key: {decoded_file_key}")
+
+                      retries = 3
+                      for _ in range(retries):
+                          try:
+                              response = rekognition.detect_custom_labels(
+                                  ProjectVersionArn=PROJECT_VERSION_ARN,
+                                  Image={'S3Object': {'Bucket': bucket_name, 'Name': decoded_file_key}}
+                              )
+                              labels = response.get('CustomLabels', [])
+                              detected_labels = [
+                                  {
+                                      'Name': label['Name'],
+                                      'Confidence': label['Confidence']
+                                  } for label in labels
+                              ]
+
+                              print("Detected Labels:", detected_labels)
+
+                              for label in detected_labels:
+                                  if label['Name'].lower() == 'plastic' and label['Confidence'] > 80:
+                                      current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                      sns_message = {
+                                          'timestamp': current_time,
+                                          'filename': decoded_file_key,
+                                          'label': label['Name'],
+                                          'confidence': label['Confidence']
+                                      }
+                                      sns_response = sns_client.publish(
+                                          TopicArn=SNS_TOPIC_ARN,
+                                          Message=json.dumps(sns_message),
+                                          Subject="Pollution Detected"
+                                      )
+                                      print("SNS Publish Response:", sns_response)
+
+                              return {
+                                  "statusCode": 200,
+                                  "body": json.dumps({"message": "Labels processed successfully"})
+                              }
+                          except Exception as e:
+                              print(f"Error processing image: {e}")
+                              time.sleep(1)
+              except Exception as e:
+                  print(f"Error in lambda handler: {e}")
+                  return {
+                      "statusCode": 500,
+                      "body": json.dumps({"message": "Error processing image", "error": str(e)})
+                  }
+
+  FileUploadLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'file-upload2'
+      Handler: 'index.lambda_handler'
+      Role: 'arn:aws:iam::650504431527:role/LabRole'
+      Runtime: 'python3.9'
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import base64
+          import boto3
+          import os
+
+          s3 = boto3.client('s3')
+
+          BUCKET_NAME = os.environ['BUCKET_NAME']
+
+          def lambda_handler(event, context):
+              try:
+                  print("Event:", event)
+                  body = json.loads(event['body'])
+                  image_data = body['image_data']
+                  file_name = body['file_name']
+
+                  image_data_bytes = base64.b64decode(image_data)
+
+                  s3.put_object(Bucket=BUCKET_NAME, Key=file_name, Body=image_data_bytes, ContentType='image/jpeg')
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({'message': 'File uploaded successfully'})
+                  }
+              except Exception as e:
+                  print(f"Error uploading file: {e}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'message': 'File upload failed', 'error': str(e)})
+                  }
+
+  FileUploadAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'FileUploadAPI'
+
+  FileUploadAPIResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt FileUploadAPI.RootResourceId
+      PathPart: 'upload'
+      RestApiId: !Ref FileUploadAPI
+
+  FileUploadAPIMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: 'NONE'
+      HttpMethod: 'POST'
+      ResourceId: !Ref FileUploadAPIResource
+      RestApiId: !Ref FileUploadAPI
+      Integration:
+        IntegrationHttpMethod: 'POST'
+        Type: 'AWS_PROXY'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FileUploadLambda.Arn}/invocations'
+
+  FileUploadAPICORS:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: 'NONE'
+      ResourceId: !Ref FileUploadAPIResource
+      RestApiId: !Ref FileUploadAPI
+      HttpMethod: 'OPTIONS'
+      Integration:
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+        RequestTemplates:
+          application/json: '{statusCode:200}'
+        Type: 'MOCK'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  LambdaPermissionFileUpload:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref FileUploadLambda
+      Principal: 'apigateway.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadAPI}/*'
+
+Outputs:
+  SubscribeApiGatewayInvokeUrl:
+    Description: Invoke URL of the Subscribe API Gateway
+    Value: !Join
+      - ""
+      - - "https://"
+        - !Ref ApiGatewayRestApiSubscribe
+        - ".execute-api."
+        - !Ref "AWS::Region"
+        - ".amazonaws.com/prod/subscribe"
+
+  UploadImageApiGatewayInvokeUrl:
+    Description: Invoke URL of the Upload Image API Gateway
+    Value: !Join
+      - ""
+      - - "https://"
+        - !Ref FileUploadAPI
+        - ".execute-api."
+        - !Ref "AWS::Region"
+        - ".amazonaws.com/prod/upload"

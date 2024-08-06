@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create Rekognition Custom Labels Project, Datasets, and Train Model using Lambda Custom Resources
+
+Resources:
+  OceanOutputBucketCloudTerm3:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: ocean-model-output-cloud-term3
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  OceanOutputBucketPolicyCloudTerm3:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket:
+        Ref: 'OceanOutputBucketCloudTerm3'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:s3:::'
+                  - Ref: 'OceanOutputBucketCloudTerm3'
+                  - '/*'
+          - Effect: Allow
+            Principal:
+              Service: 'rekognition.amazonaws.com'
+            Action: 's3:PutObject'
+            Resource:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:s3:::'
+                  - Ref: 'OceanOutputBucketCloudTerm3'
+                  - '/*'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: 'bucket-owner-full-control'
+
+  OceanPollutionRekognitionProjectCloudTerm3:
+    Type: "AWS::Rekognition::Project"
+    Properties:
+      ProjectName: "ocean-pollution-detector-project-pm-cloudterm3"
+
+  OceanPollutionDatasetCreationLambdaFunctionCloudTerm3:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: "OceanPollutionDatasetCreationLambdaFunctionCloudTerm3"
+      Handler: "index.handler"
+      Role: 'arn:aws:iam::650504431527:role/LabRole'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib.request
+
+          SUCCESS = 'SUCCESS'
+          FAILED = 'FAILED'
+
+          def send_response(event, context, response_status, response_data, physical_resource_id=None, reason=None):
+              response_url = event['ResponseURL']
+              response_body = json.dumps({
+                  'Status': response_status,
+                  'Reason': reason or 'No reason provided',
+                  'PhysicalResourceId': physical_resource_id or context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': response_data
+              })
+              headers = {
+                  'content-type': '',
+                  'content-length': str(len(response_body))
+              }
+              request = urllib.request.Request(response_url, data=response_body.encode('utf-8'), headers=headers, method='PUT')
+              try:
+                  urllib.request.urlopen(request)
+              except Exception as e:
+                  print(f'Failed to send response: {str(e)}')
+
+          def handler(event, context):
+              rekognition = boto3.client('rekognition')
+              project_arn = event['ResourceProperties']['ProjectArn']
+              training_data_bucket = 'ocean-pollution-train-data'
+              test_data_bucket = 'ocean-pollution-test-data'
+              
+              # Paths to the manifest files
+              training_manifest_file = 'manifest/training_manifest_with_validation.json'
+              test_manifest_file = 'manifest/testing_manifest_with_validation.json'
+              
+              try:
+                  # Create training dataset
+                  response_train = rekognition.create_dataset(
+                      ProjectArn=project_arn,
+                      DatasetType='TRAIN',
+                      DatasetSource={
+                          'GroundTruthManifest': {
+                              'S3Object': {
+                                  'Bucket': training_data_bucket,
+                                  'Name': training_manifest_file
+                              }
+                          }
+                      }
+                  )
+                  print(f"Training dataset created successfully: {response_train}")
+
+                  # Create test dataset
+                  response_test = rekognition.create_dataset(
+                      ProjectArn=project_arn,
+                      DatasetType='TEST',
+                      DatasetSource={
+                          'GroundTruthManifest': {
+                              'S3Object': {
+                                  'Bucket': test_data_bucket,
+                                  'Name': test_manifest_file
+                              }
+                          }
+                      }
+                  )
+                  print(f"Test dataset created successfully: {response_test}")
+
+                  # Send success response to CloudFormation
+                  send_response(event, context, SUCCESS, {'Message': 'Datasets created successfully!'})
+                  
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  # Send failure response to CloudFormation
+                  send_response(event, context, FAILED, {'Message': str(e)})
+
+      Runtime: "python3.8"
+      Timeout: 300
+      MemorySize: 128
+
+  OceanPollutionDatasetCreationCustomResourceCloudTerm3:
+    Type: "Custom::InvokeLambda"
+    DependsOn: OceanOutputBucketPolicyCloudTerm3
+    Properties:
+      ServiceToken: !GetAtt OceanPollutionDatasetCreationLambdaFunctionCloudTerm3.Arn
+      ProjectArn: !GetAtt OceanPollutionRekognitionProjectCloudTerm3.Arn
+
+  OceanPollutionModelTrainingLambdaFunctionCloudTerm3:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: "OceanPollutionModelTrainFunctionCloudTerm3"
+      Handler: "index.handler"
+      Role: 'arn:aws:iam::650504431527:role/LabRole'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib.request
+          import time
+
+          SUCCESS = 'SUCCESS'
+          FAILED = 'FAILED'
+
+          def send_response(event, context, response_status, response_data, physical_resource_id=None, reason=None):
+              response_url = event['ResponseURL']
+              response_body = json.dumps({
+                  'Status': response_status,
+                  'Reason': reason or 'No reason provided',
+                  'PhysicalResourceId': physical_resource_id or context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': response_data
+              })
+              headers = {
+                  'content-type': '',
+                  'content-length': str(len(response_body))
+              }
+              request = urllib.request.Request(response_url, data=response_body.encode('utf-8'), headers=headers, method='PUT')
+              try:
+                  urllib.request.urlopen(request)
+              except Exception as e:
+                  print(f'Failed to send response: {str(e)}')
+
+          def handler(event, context):
+              rekognition = boto3.client('rekognition')
+              project_arn = event['ResourceProperties']['ProjectArn']
+              max_retries = 5
+              retry_delay = 30  # seconds
+              attempt = 0
+              
+              while attempt < max_retries:
+                  try:
+                      print("Starting model training")
+                      response = rekognition.create_project_version(
+                          ProjectArn=project_arn,
+                          VersionName='version-1',
+                          OutputConfig={
+                              'S3Bucket': 'ocean-model-output-cloud-term3'
+                          }
+                      )
+                      print(f"Model training started successfully: {response}")
+                      send_response(event, context, SUCCESS, {'Message': 'Model training started successfully!'})
+                      return
+                  
+                  except rekognition.exceptions.InvalidParameterException as e:
+                      print(f"Error: {str(e)}")
+                      attempt += 1
+                      print(f"Retrying in {retry_delay} seconds...")
+                      time.sleep(retry_delay)
+              
+              send_response(event, context, FAILED, {'Message': 'Failed to start model training after retries.'})
+
+      Runtime: "python3.8"
+      Timeout: 300
+      MemorySize: 128
+
+  OceanPollutionModelTrainingCustomResourceInvokeCloudTerm3:
+    Type: "Custom::InvokeLambda"
+    DependsOn: OceanPollutionDatasetCreationCustomResourceCloudTerm3
+    Properties:
+      ServiceToken: !GetAtt OceanPollutionModelTrainingLambdaFunctionCloudTerm3.Arn
+      ProjectArn: !GetAtt OceanPollutionRekognitionProjectCloudTerm3.Arn

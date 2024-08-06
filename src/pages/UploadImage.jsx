@@ -9,6 +9,7 @@ function UploadImage() {
   const [imageFile, setImageFile] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const navigate = useNavigate();
+  const imageUploadUrl = import.meta.env.VITE_UPLOAD_IMAGE_API_URL;
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -35,7 +36,7 @@ function UploadImage() {
           };
 
           const response = await axios.post(
-            'https://s2ks16xf5k.execute-api.us-east-1.amazonaws.com/dev/save-snapshot',
+            `${imageUploadUrl}`,
             payload,
             {
               headers: {

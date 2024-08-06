@@ -8,6 +8,7 @@ function Home() {
   const [email, setEmail] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const subscribeUrl = import.meta.env.VITE_SUBSCRIBE_API_URL;
 
   const handleSubscribe = async () => {
     if (!validateEmail(email)) {
@@ -19,14 +20,14 @@ function Home() {
     setSuccessMessage('');
 
     try {
-        const response = await axios.get('https://ebz4vnzxcf.execute-api.us-east-1.amazonaws.com/dev/subscribe-to-topic', {
+        const response = await axios.get(`${subscribeUrl}`, {
             params: { email }
         });
 
         if (response.status === 200) {
             setSuccessMessage('Subscription successful!');
             setEmail('');
-            setTimeout(() => setShowPopup(false), 2000); // Close popup after 2 seconds
+            setTimeout(() => setShowPopup(false), 2000);
         } else {
             setErrorMessage('Subscription failed. Please try again.');
         }

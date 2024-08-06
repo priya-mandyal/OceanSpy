@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  VPCId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: 'The ID of the existing VPC'
+
+  ExistingSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: 'The ID of the existing subnet 1'
+
+  ExistingSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: 'The ID of the existing subnet 2'
+Resources:
+  # ECR Repository
+  OceanPollutionECRRepository:
+    Type: 'AWS::ECR::Repository'
+    Properties:
+      RepositoryName: 'ocean-pollution-ecr-repository'
+
+  # Security Group for ECS
+  ECSServiceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Security group for ECS service allowing ports 80 and 3000'
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'  # Allow HTTP traffic from anywhere
+        - IpProtocol: 'tcp'
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: '0.0.0.0/0'  # Allow traffic on port 3000 from anywhere
+      SecurityGroupEgress:
+        - IpProtocol: 'tcp'
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: '0.0.0.0/0'  # Allow all outbound traffic
+
+  # ECS Cluster
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: 'frontend-cluster'
+
+  # Task Definition
+  TaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      NetworkMode: awsvpc
+      Family: 'frontend-task'
+      TaskRoleArn: 'arn:aws:iam::650504431527:role/LabRole'
+      ExecutionRoleArn: 'arn:aws:iam::650504431527:role/LabRole'
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: 'frontend-container'
+          Image: !Sub '650504431527.dkr.ecr.us-east-1.amazonaws.com/${OceanPollutionECRRepository}'
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+            - ContainerPort: 3000
+              HostPort: 3000
+          Memory: 1024
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: 'true'
+              awslogs-group: '/ecs/frontend-logs'
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: 'frontend'
+
+  # ECS Service
+  ECSService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      ServiceName: 'frontend-service'
+      SchedulingStrategy: REPLICA
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref ExistingSubnet1
+            - !Ref ExistingSubnet2
+          SecurityGroups:
+            - !Ref ECSServiceSecurityGroup
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+
+Outputs:
+  ECSClusterName:
+    Description: 'The name of the ECS Cluster'
+    Value: !Ref ECSCluster
