@@ -4,12 +4,17 @@ Resources:
   StorageOceanBucket:
     Type: 'AWS::S3::Bucket'
     Properties:
-      BucketName: 'storage-ocean-data-real-time'  # Specify the custom bucket name
+      BucketName: 'storage-ocean-bucket-2'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         IgnorePublicAcls: false
         BlockPublicPolicy: false
         RestrictPublicBuckets: false
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt ImageProcessingLambda.Arn
+
 
   # Define the bucket policy
   StorageOceanBucketPolicy:
@@ -23,8 +28,11 @@ Resources:
           - Sid: 'Stmt1721796045038'
             Effect: 'Allow'
             Principal: '*'
-            Action: 's3:GetObject'
-            Resource: !Sub 'arn:aws:s3:::storage-ocean-data-real-time/*'
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::storage-ocean-bucket-2/*'
+
 
   SNSTopic:
     Type: 'AWS::SNS::Topic'
@@ -70,6 +78,11 @@ Resources:
 
                   return {
                       'statusCode': 200,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type'
+                      },
                       'body': json.dumps('Subscription successful!')
                   }
 
@@ -115,13 +128,19 @@ Resources:
     Type: 'AWS::ApiGateway::Method'
     Properties:
       AuthorizationType: 'NONE'
-      HttpMethod: 'POST'
+      HttpMethod: 'GET'
       ResourceId: !Ref ApiGatewayResourceSubscribe
       RestApiId: !Ref ApiGatewayRestApiSubscribe
       Integration:
         IntegrationHttpMethod: 'POST'
         Type: 'AWS_PROXY'
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SubscribeToTopicLambda.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+            method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
 
   ApiGatewayDeploymentSubscribe:
     Type: 'AWS::ApiGateway::Deployment'
@@ -138,6 +157,7 @@ Resources:
       Principal: 'apigateway.amazonaws.com'
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApiSubscribe}/*'
 
+
   ApiGatewayCorsOptionsSubscribe:
     Type: 'AWS::ApiGateway::Method'
     Properties:
@@ -151,9 +171,12 @@ Resources:
             ResponseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
-              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
         RequestTemplates:
-          application/json: '{statusCode:200}'
+          application/json: '{"statusCode": 200}'
         Type: 'MOCK'
       MethodResponses:
         - StatusCode: '200'
@@ -233,6 +256,11 @@ Resources:
 
                               return {
                                   "statusCode": 200,
+                                  'headers': {
+                                      'Access-Control-Allow-Origin': '*',
+                                      'Access-Control-Allow-Methods': 'GET,OPTIONS',
+                                      'Access-Control-Allow-Headers': 'Content-Type'
+                                  },
                                   "body": json.dumps({"message": "Labels processed successfully"})
                               }
                           except Exception as e:
@@ -244,6 +272,17 @@ Resources:
                       "statusCode": 500,
                       "body": json.dumps({"message": "Error processing image", "error": str(e)})
                   }
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSTopic
+
+  LambdaPermissionS3:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ImageProcessingLambda
+      Principal: 's3.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:s3:::storage-ocean-bucket-2'
 
   FileUploadLambda:
     Type: 'AWS::Lambda::Function'
@@ -268,8 +307,8 @@ Resources:
               try:
                   print("Event:", event)
                   body = json.loads(event['body'])
-                  image_data = body['image_data']
-                  file_name = body['file_name']
+                  image_data = body['image']
+                  file_name = body['filename']
 
                   image_data_bytes = base64.b64decode(image_data)
 
@@ -277,6 +316,11 @@ Resources:
 
                   return {
                       'statusCode': 200,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type'
+                      },
                       'body': json.dumps({'message': 'File uploaded successfully'})
                   }
               except Exception as e:
@@ -285,6 +329,9 @@ Resources:
                       'statusCode': 500,
                       'body': json.dumps({'message': 'File upload failed', 'error': str(e)})
                   }
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref StorageOceanBucket
 
   FileUploadAPI:
     Type: 'AWS::ApiGateway::RestApi'
@@ -309,6 +356,27 @@ Resources:
         IntegrationHttpMethod: 'POST'
         Type: 'AWS_PROXY'
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FileUploadLambda.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+            method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+
+  ApiGatewayDeploymentUpload:
+    Type: 'AWS::ApiGateway::Deployment'
+    Properties:
+      RestApiId: !Ref FileUploadAPI
+      StageName: 'prod'
+    DependsOn: FileUploadAPIMethod
+  
+  LambdaPermissionUpload:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref FileUploadLambda 
+      Principal: 'apigateway.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadAPI}/*'
 
   FileUploadAPICORS:
     Type: 'AWS::ApiGateway::Method'
@@ -321,11 +389,14 @@ Resources:
         IntegrationResponses:
           - StatusCode: '200'
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
               method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
         RequestTemplates:
-          application/json: '{statusCode:200}'
+          application/json: '{"statusCode": 200}'
         Type: 'MOCK'
       MethodResponses:
         - StatusCode: '200'
@@ -334,13 +405,6 @@ Resources:
             method.response.header.Access-Control-Allow-Origin: true
             method.response.header.Access-Control-Allow-Methods: true
 
-  LambdaPermissionFileUpload:
-    Type: 'AWS::Lambda::Permission'
-    Properties:
-      Action: 'lambda:InvokeFunction'
-      FunctionName: !Ref FileUploadLambda
-      Principal: 'apigateway.amazonaws.com'
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadAPI}/*'
 
 Outputs:
   SubscribeApiGatewayInvokeUrl:

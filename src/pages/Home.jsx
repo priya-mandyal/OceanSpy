@@ -20,6 +20,7 @@ function Home() {
     setSuccessMessage('');
 
     try {
+      console.log(subscribeUrl)
         const response = await axios.get(`${subscribeUrl}`, {
             params: { email }
         });
