@@ -12,13 +12,11 @@ Parameters:
     Type: 'AWS::EC2::Subnet::Id'
     Description: 'The ID of the existing subnet 2'
 Resources:
-  # ECR Repository
   OceanPollutionECRRepository:
     Type: 'AWS::ECR::Repository'
     Properties:
       RepositoryName: 'ocean-pollution-ecr-repository'
 
-  # Security Group for ECS
   ECSServiceSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -28,24 +26,22 @@ Resources:
         - IpProtocol: 'tcp'
           FromPort: 80
           ToPort: 80
-          CidrIp: '0.0.0.0/0'  # Allow HTTP traffic from anywhere
+          CidrIp: '0.0.0.0/0'
         - IpProtocol: 'tcp'
           FromPort: 3000
           ToPort: 3000
-          CidrIp: '0.0.0.0/0'  # Allow traffic on port 3000 from anywhere
+          CidrIp: '0.0.0.0/0'
       SecurityGroupEgress:
         - IpProtocol: 'tcp'
           FromPort: 0
           ToPort: 65535
-          CidrIp: '0.0.0.0/0'  # Allow all outbound traffic
+          CidrIp: '0.0.0.0/0'
 
-  # ECS Cluster
   ECSCluster:
     Type: 'AWS::ECS::Cluster'
     Properties:
       ClusterName: 'frontend-cluster'
 
-  # Task Definition
   TaskDefinition:
     Type: 'AWS::ECS::TaskDefinition'
     Properties:
@@ -78,7 +74,6 @@ Resources:
               awslogs-region: us-east-1
               awslogs-stream-prefix: 'frontend'
 
-  # ECS Service
   ECSService:
     Type: 'AWS::ECS::Service'
     Properties:
