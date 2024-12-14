@@ -47,6 +47,37 @@ Resources:
     Properties:
       ProjectName: "ocean-pollution-detector-project-final"
 
+  RekognitionErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/rekognition/processing"
+      RetentionInDays: 14
+
+  RekognitionErrorMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref RekognitionErrorLogGroup
+      FilterPattern: '{ $.errorCode = "*" }'
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "Custom/Rekognition"
+          MetricName: "RekognitionErrorCount"
+
+  RekognitionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "RekognitionProcessingErrorAlarm"
+      ComparisonOperator: "GreaterThanThreshold"
+      EvaluationPeriods: 1
+      MetricName: "RekognitionErrorCount"
+      Namespace: "Custom/Rekognition"
+      Period: 300
+      Statistic: "Sum"
+      Threshold: 5
+      AlarmDescription: "Alarm for Rekognition processing errors exceeding threshold."
+      AlarmActions:
+        - !Ref SNSTopic
+
   OceanPollutionDatasetCreationLambdaFunctionCloudTermFinal:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -487,11 +518,21 @@ Resources:
       Principal: 's3.amazonaws.com'
       SourceArn: !Sub 'arn:aws:s3:::storage-ocean-bucket-2'
 
+  OSFileProcessingDLQ:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: 'OSFileProcessingDLQ'
+      VisibilityTimeout: 60
+
   OSFileProcessingQueue:
     Type: 'AWS::SQS::Queue'
     Properties:
       QueueName: 'OSFileProcessingQueue'
-      VisibilityTimeout: 60 
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OSFileProcessingDLQ.Arn
+        maxReceiveCount: 5 
+
 
   SQSQueuePolicy:
     Type: 'AWS::SQS::QueuePolicy'
