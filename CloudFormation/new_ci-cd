@@ -11,11 +11,13 @@ Parameters:
   ExistingSubnet2:
     Type: 'AWS::EC2::Subnet::Id'
     Description: 'The ID of the existing subnet 2'
+
 Resources:
   OceanPollutionECRRepository:
     Type: 'AWS::ECR::Repository'
     Properties:
       RepositoryName: 'ocean-pollution-ecr-repository'
+
 
   ECSServiceSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -37,18 +39,59 @@ Resources:
           ToPort: 65535
           CidrIp: '0.0.0.0/0'
 
+
+  ApplicationLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: 'frontend-alb'
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ECSServiceSecurityGroup
+      Subnets:
+        - !Ref ExistingSubnet1
+        - !Ref ExistingSubnet2
+
+
+  ALBTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: 'frontend-target-group'
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VPCId
+      TargetType: ip
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: '/'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+
+
+  ALBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+
   ECSCluster:
     Type: 'AWS::ECS::Cluster'
     Properties:
       ClusterName: 'frontend-cluster'
+
 
   TaskDefinition:
     Type: 'AWS::ECS::TaskDefinition'
     Properties:
       NetworkMode: awsvpc
       Family: 'frontend-task'
-      TaskRoleArn: 'arn:aws:iam::757558023608:role/LabRole'
-      ExecutionRoleArn: 'arn:aws:iam::757558023608:role/LabRole'
+      TaskRoleArn: 'arn:aws:iam::211125789396:role/LabRole'
+      ExecutionRoleArn: 'arn:aws:iam::211125789396:role/LabRole'
       RequiresCompatibilities:
         - FARGATE
       Cpu: '1024'
@@ -58,12 +101,9 @@ Resources:
         OperatingSystemFamily: LINUX
       ContainerDefinitions:
         - Name: 'frontend-container'
-          Image: !Sub '757558023608.dkr.ecr.us-east-1.amazonaws.com/${OceanPollutionECRRepository}'
+          Image: !Sub '211125789396.dkr.ecr.us-east-1.amazonaws.com/${OceanPollutionECRRepository}'
           PortMappings:
             - ContainerPort: 80
-              HostPort: 80
-            - ContainerPort: 3000
-              HostPort: 3000
           Memory: 1024
           Essential: true
           LogConfiguration:
@@ -74,8 +114,11 @@ Resources:
               awslogs-region: us-east-1
               awslogs-stream-prefix: 'frontend'
 
+
   ECSService:
     Type: 'AWS::ECS::Service'
+    DependsOn:
+      - ALBListener
     Properties:
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
@@ -91,11 +134,20 @@ Resources:
             - !Ref ExistingSubnet2
           SecurityGroups:
             - !Ref ECSServiceSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          ContainerName: 'frontend-container'
+          ContainerPort: 80
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
+
 
 Outputs:
   ECSClusterName:
     Description: 'The name of the ECS Cluster'
     Value: !Ref ECSCluster
+
+  ALBURL:
+    Description: 'The URL of the Application Load Balancer'
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'

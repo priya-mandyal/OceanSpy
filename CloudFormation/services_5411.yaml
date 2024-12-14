@@ -52,7 +52,7 @@ Resources:
     Properties:
       FunctionName: "OceanPollutionDatasetCreationLambdaFunctionCloudTermFinal"
       Handler: "index.handler"
-      Role: 'arn:aws:iam::757558023608:role/LabRole'
+      Role: 'arn:aws:iam::211125789396:role/LabRole'
       Code:
         ZipFile: |
           import json
@@ -143,7 +143,7 @@ Resources:
     Properties:
       FunctionName: "OceanPollutionModelTrainFunctionCloudTermFinal"
       Handler: "index.handler"
-      Role: 'arn:aws:iam::757558023608:role/LabRole'
+      Role: 'arn:aws:iam::211125789396:role/LabRole'
       Code:
         ZipFile: |
           import json
@@ -220,15 +220,40 @@ Resources:
     Properties:
       BucketName: 'storage-ocean-bucket-2'
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        IgnorePublicAcls: false
-        BlockPublicPolicy: false
-        RestrictPublicBuckets: false
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: 's3:ObjectCreated:*'
-            Function: !GetAtt ImageProcessingLambda.Arn
-
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: 
+        Status: Enabled
+      IntelligentTieringConfigurations:
+        - Id: IntelligentTiering
+          Status: Enabled
+          Tierings:
+            - AccessTier: ARCHIVE_ACCESS
+              Days: 90
+            - AccessTier: DEEP_ARCHIVE_ACCESS
+              Days: 180
+      LifecycleConfiguration: 
+        Rules:
+          - Id: MoveToGlacier
+            Status: Enabled
+            Prefix: ''
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 90 
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 365 
+          - Id: DeleteOldFiles
+            Status: Enabled
+            ExpirationInDays: 730 
+      Tags:
+        - Key: Name
+          Value: StorageOceanBucket
+        - Key: Environment
+          Value: Production
 
   StorageOceanBucketPolicy:
     Type: 'AWS::S3::BucketPolicy'
@@ -236,14 +261,14 @@ Resources:
       Bucket: !Ref StorageOceanBucket
       PolicyDocument:
         Version: '2012-10-17'
-        Id: 'Policy1721796046877'
         Statement:
-          - Sid: 'Stmt1721796045038'
-            Effect: 'Allow'
-            Principal: '*'
+          - Sid: 'AllowAccessToLambda'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
             Action:
-              - 's3:PutObject'
               - 's3:GetObject'
+              - 's3:PutObject'
             Resource: !Sub 'arn:aws:s3:::storage-ocean-bucket-2/*'
 
 
@@ -257,7 +282,7 @@ Resources:
     Properties:
       FunctionName: 'subscribe-to-topic2'
       Handler: 'index.lambda_handler'
-      Role: 'arn:aws:iam::757558023608:role/LabRole'
+      Role: 'arn:aws:iam::211125789396:role/LabRole'
       Code:
         ZipFile: |
           import json
@@ -398,93 +423,57 @@ Resources:
             method.response.header.Access-Control-Allow-Origin: true
             method.response.header.Access-Control-Allow-Methods: true
 
+
   ImageProcessingLambda:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: 'image-processing2'
       Handler: 'index.lambda_handler'
-      Role: 'arn:aws:iam::757558023608:role/LabRole'
+      Role: 'arn:aws:iam::211125789396:role/LabRole'
       Runtime: 'python3.9'
       Timeout: 60
       Code:
         ZipFile: |
           import boto3
           import json
-          import time
           import os
-          from urllib.parse import unquote_plus
-          from datetime import datetime
 
           rekognition = boto3.client('rekognition')
           sns_client = boto3.client('sns')
-          s3 = boto3.client('s3')
 
           PROJECT_VERSION_ARN = os.environ['REKOGNITION_PROJECT_VERSION_ARN']
           SNS_TOPIC_ARN = os.environ['SNS_TOPIC_ARN']
 
           def lambda_handler(event, context):
-              try:
-                  print("Event:", event)
+              for record in event['Records']:
+                  try:
+                      body = json.loads(record['body'])
+            
+            
+                      bucket_name = body['bucket_name']
+                      file_name = body['file_name']
+                      response = rekognition.detect_custom_labels(
+                          ProjectVersionArn=PROJECT_VERSION_ARN,
+                          Image={'S3Object': {'Bucket': bucket_name, 'Name': file_name}}
+                      )
+                      labels = response.get('CustomLabels', [])
+                      print(f"Detected labels: {labels}")
 
-                  for record in event['Records']:
-                      bucket_name = record['s3']['bucket']['name']
-                      file_key = record['s3']['object']['key']
-
-                      decoded_file_key = unquote_plus(file_key)
-
-                      print(f"Bucket: {bucket_name}, File Key: {decoded_file_key}")
-
-                      retries = 3
-                      for _ in range(retries):
-                          try:
-                              response = rekognition.detect_custom_labels(
-                                  ProjectVersionArn=PROJECT_VERSION_ARN,
-                                  Image={'S3Object': {'Bucket': bucket_name, 'Name': decoded_file_key}}
-                              )
-                              labels = response.get('CustomLabels', [])
-                              detected_labels = [
-                                  {
-                                      'Name': label['Name'],
-                                      'Confidence': label['Confidence']
-                                  } for label in labels
-                              ]
-
-                              print("Detected Labels:", detected_labels)
-
-                              for label in detected_labels:
-                                  if label['Name'].lower() == 'plastic' and label['Confidence'] > 80:
-                                      current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                      sns_message = {
-                                          'timestamp': current_time,
-                                          'filename': decoded_file_key,
-                                          'label': label['Name'],
-                                          'confidence': label['Confidence']
-                                      }
-                                      sns_response = sns_client.publish(
-                                          TopicArn=SNS_TOPIC_ARN,
-                                          Message=json.dumps(sns_message),
-                                          Subject="Pollution Detected"
-                                      )
-                                      print("SNS Publish Response:", sns_response)
-
-                              return {
-                                  "statusCode": 200,
-                                  'headers': {
-                                      'Access-Control-Allow-Origin': '*',
-                                      'Access-Control-Allow-Methods': 'GET,OPTIONS',
-                                      'Access-Control-Allow-Headers': 'Content-Type'
-                                  },
-                                  "body": json.dumps({"message": "Labels processed successfully"})
+                      # Publish results to SNS
+                      for label in labels:
+                          if label['Name'].lower() == 'plastic' and label['Confidence'] > 80:
+                              sns_message = {
+                                  'filename': file_name,
+                                  'label': label['Name'],
+                                  'confidence': label['Confidence']
                               }
-                          except Exception as e:
-                              print(f"Error processing image: {e}")
-                              time.sleep(1)
-              except Exception as e:
-                  print(f"Error in lambda handler: {e}")
-                  return {
-                      "statusCode": 500,
-                      "body": json.dumps({"message": "Error processing image", "error": str(e)})
-                  }
+                              sns_client.publish(
+                                  TopicArn=SNS_TOPIC_ARN,
+                                  Message=json.dumps(sns_message),
+                                  Subject="Pollution Detected"
+                              )
+                  except Exception as e:
+                      print(f"Error processing record: {e}")
       Environment:
         Variables:
           REKOGNITION_PROJECT_VERSION_ARN: !GetAtt OceanPollutionRekognitionProjectCloudTermFinal.Arn
@@ -498,12 +487,44 @@ Resources:
       Principal: 's3.amazonaws.com'
       SourceArn: !Sub 'arn:aws:s3:::storage-ocean-bucket-2'
 
+  OSFileProcessingQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: 'OSFileProcessingQueue'
+      VisibilityTimeout: 60 
+
+  SQSQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      Queues:
+        - !Ref OSFileProcessingQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action:
+              - 'sqs:SendMessage'
+              - 'sqs:ReceiveMessage'
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueAttributes'
+            Resource: !GetAtt OSFileProcessingQueue.Arn
+
+  SQSLambdaEventSourceMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    Properties:
+      BatchSize: 10
+      EventSourceArn: !GetAtt OSFileProcessingQueue.Arn
+      FunctionName: !GetAtt ImageProcessingLambda.Arn
+      Enabled: True
+
   FileUploadLambda:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: 'file-upload2'
       Handler: 'index.lambda_handler'
-      Role: 'arn:aws:iam::757558023608:role/LabRole'
+      Role: 'arn:aws:iam::211125789396:role/LabRole'
       Runtime: 'python3.9'
       Timeout: 60
       Code:
@@ -514,8 +535,10 @@ Resources:
           import os
 
           s3 = boto3.client('s3')
+          sqs = boto3.client('sqs')
 
           BUCKET_NAME = os.environ['BUCKET_NAME']
+          SQS_QUEUE_URL = os.environ['SQS_QUEUE_URL']
 
           def lambda_handler(event, context):
               try:
@@ -524,9 +547,16 @@ Resources:
                   image_data = body['image']
                   file_name = body['filename']
 
+                  # Upload file to S3
                   image_data_bytes = base64.b64decode(image_data)
-
                   s3.put_object(Bucket=BUCKET_NAME, Key=file_name, Body=image_data_bytes, ContentType='image/jpeg')
+
+                  # Send message to SQS
+                  message = {
+                      'bucket_name': BUCKET_NAME,
+                      'file_name': file_name
+                  }
+                  sqs.send_message(QueueUrl=SQS_QUEUE_URL, MessageBody=json.dumps(message))
 
                   return {
                       'statusCode': 200,
@@ -535,7 +565,7 @@ Resources:
                           'Access-Control-Allow-Methods': 'POST,OPTIONS',
                           'Access-Control-Allow-Headers': 'Content-Type'
                       },
-                      'body': json.dumps({'message': 'File uploaded successfully'})
+                      'body': json.dumps({'message': 'File uploaded successfully and message sent to SQS'})
                   }
               except Exception as e:
                   print(f"Error uploading file: {e}")
@@ -546,6 +576,7 @@ Resources:
       Environment:
         Variables:
           BUCKET_NAME: !Ref StorageOceanBucket
+          SQS_QUEUE_URL: !GetAtt OSFileProcessingQueue.QueueUrl
 
   FileUploadAPI:
     Type: 'AWS::ApiGateway::RestApi'
