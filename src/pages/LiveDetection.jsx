@@ -11,6 +11,7 @@
 //   const navigate = useNavigate();
 
 //   useEffect(() => {
+  
 //     const startWebcam = async () => {
 //       try {
 //         const constraints = {
