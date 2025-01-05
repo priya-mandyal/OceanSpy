@@ -30,13 +30,14 @@ Here are some screenshots of the OceanSpy website showcasing its features and de
   ![Home Page Screenshot](media/homepage.png)
 
 - **Subscription Page**  
-  ![Subscription Page Screenshot](media/subscription.png) 
+  ![Subscription Page Screenshot](media/subscription.png)
+  ![Subscription Page Screenshot](media/sub2.png) 
 
 - **Upload Image Page**  
-  ![Upload Page Screenshot](media/uploadpage.png)  
+  ![Upload Page Screenshot](media/imageupload.png)  
 
 - **Detection Results**  
-  ![Results Page Screenshot](media/resultspage.png)  
+  ![Results Page Screenshot](media/results.png)  
 
 ---
 
