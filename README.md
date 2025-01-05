@@ -4,7 +4,6 @@
   <img src="src/media/logo.png" alt="Ocean Pollution Detector Logo" width="150"/>
 </p>
 
-- 🌐 [**Visit the Application**](http://54.172.113.246:3000/)
 - 📄 [**Project PDF**](media/TermProject5411.pdf)
 
 ---
@@ -20,6 +19,24 @@ OceanSpy is a web application designed to detect and analyze pollution in the oc
 - 📷 **Upload Image**: Users can upload images of the ocean to detect pollution.
 - 🎥 **Live Detection**: Real-time detection using the webcam to periodically capture images and analyze them for pollution.
 - 📱 **Responsive Design**: Mobile-friendly and designed for various screen sizes.
+
+---  
+
+## Website Screenshots 📸  
+
+Here are some screenshots of the OceanSpy website showcasing its features and design:  
+
+- **Home Page**  
+  ![Home Page Screenshot](media/homepage.png)
+
+- **Subscription Page**  
+  ![Subscription Page Screenshot](media/subscription.png) 
+
+- **Upload Image Page**  
+  ![Upload Page Screenshot](media/uploadpage.png)  
+
+- **Detection Results**  
+  ![Results Page Screenshot](media/resultspage.png)  
 
 ---
 
