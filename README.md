@@ -30,7 +30,7 @@ The Ocean Pollution Detector is a web application designed to detect and analyze
 
 ## Architecture
 
-![Architecture Diagram](media/Arch2025.png)
+![Architecture Diagram](media/archi2025.png)
 
 ## How It Works
 
