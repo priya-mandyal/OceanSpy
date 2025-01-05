@@ -1,15 +1,15 @@
-# Ocean Pollution Detector
+# OceanSpy
 
 <p align="center">
   <img src="src/media/logo.png" alt="Ocean Pollution Detector Logo" width="150"/>
 </p>
 
 - [Visit the Application 🌐](http://54.172.113.246:3000/)
-- [Project PDF 📄](media/Project.pdf)
+- [Project PDF 📄](media/TermProject5411.pdf)
 
 ## Overview
 
-The Ocean Pollution Detector is a web application designed to detect and analyze pollution in the ocean using real-time image uploads and live camera detection. The application leverages AWS services to handle image uploads and analysis, providing users with insights into ocean pollution.
+OceanSpy is a web application designed to detect and analyze pollution in the ocean using real-time image uploads. It not only focuses on functionality but also ensures seamless delivery by adhering to the six pillars of the AWS Well-Architected Framework, making it scalable, secure, efficient, and resilient.
 
 ## Features
 
